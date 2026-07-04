@@ -14,7 +14,10 @@ import (
 
 	"github.com/bontaramsonta/poof/internal/provision"
 	"github.com/bontaramsonta/poof/internal/session"
+	"github.com/bontaramsonta/poof/internal/socks"
 )
+
+const socksAddr = "127.0.0.1:1080"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -81,6 +84,17 @@ func cmdUp(country, profile string, verbose bool) error {
 	if ip := egressIP(ctx, conn); ip != "" {
 		fmt.Printf("✓ traffic through the tunnel exits from: %s\n", ip)
 	}
+
+	// Serve the SOCKS5 proxy so apps can actually use the tunnel.
+	go func() {
+		if err := socks.NewServer(conn.Tunnel).ListenAndServe(ctx, socksAddr); err != nil {
+			fmt.Fprintf(os.Stderr, "!! socks proxy stopped: %v\n", err)
+		}
+	}()
+	fmt.Printf("✓ SOCKS5 proxy listening on %s\n", socksAddr)
+	fmt.Printf("\n  point an app at it, e.g.:\n"+
+		"    curl --proxy socks5h://%s https://api.ipify.org\n"+
+		"    (socks5h = resolve DNS through the tunnel, no leaks)\n", socksAddr)
 
 	fmt.Println("\n(press Ctrl-C to disconnect and destroy the exit)")
 	<-ctx.Done()
