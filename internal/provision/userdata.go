@@ -32,8 +32,9 @@ type ExitParams struct {
 var userDataTmpl = template.Must(template.New("userdata").Parse(`#!/bin/bash
 set -euxo pipefail
 
-# 1. Kernel WireGuard (the server has root and wants raw throughput).
-dnf install -y wireguard-tools
+# 1. Kernel WireGuard plus nftables (AL2023 ships neither iptables nor
+#    nft by default; the server has root and wants raw throughput).
+dnf install -y wireguard-tools nftables
 
 # 2. The interface config: our server key, and exactly one peer — the
 #    client whose keypair was generated for this session.
@@ -51,13 +52,16 @@ AllowedIPs = {{.ClientTunnelIP}}/32
 EOF
 
 # 3. Become a router: forward tunnel traffic out the primary NIC and
-#    masquerade it behind this box's public IP.
+#    masquerade it behind this box's public IP. AL2023 is nftables-only.
+#    A fresh box has no default-drop forward chain, so ip_forward plus a
+#    masquerade rule is enough; we add an explicit accept for clarity.
 echo 'net.ipv4.ip_forward=1' >/etc/sysctl.d/99-poof.conf
 sysctl -p /etc/sysctl.d/99-poof.conf
 PRIMARY_IF=$(ip -o -4 route show to default | awk '{print $5}')
-iptables -t nat -A POSTROUTING -o "$PRIMARY_IF" -j MASQUERADE
-iptables -A FORWARD -i wg0 -o "$PRIMARY_IF" -j ACCEPT
-iptables -A FORWARD -i "$PRIMARY_IF" -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+nft add table ip poof
+nft add chain ip poof postrouting "{ type nat hook postrouting priority 100 ; }"
+nft add rule ip poof postrouting oifname "$PRIMARY_IF" masquerade
+nft add chain ip poof forward "{ type filter hook forward priority 0 ; policy accept ; }"
 
 # 4. Bring the tunnel up now and on every boot.
 systemctl enable --now wg-quick@wg0
