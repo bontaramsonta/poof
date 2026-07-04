@@ -97,9 +97,65 @@ func cmdUp(country, profile string, verbose bool) error {
 		"    (socks5h = resolve DNS through the tunnel, no leaks)\n", socksAddr)
 
 	fmt.Println("\n(press Ctrl-C to disconnect and destroy the exit)")
-	<-ctx.Done()
+
+	// Live status line until Ctrl-C.
+	runStatusLine(ctx, conn, country)
 	fmt.Println()
 	return nil
+}
+
+// runStatusLine refreshes a single in-place line with liveness and
+// throughput until ctx is cancelled. All data comes from Tunnel.Status
+// (parsed from the WireGuard device state each tick).
+func runStatusLine(ctx context.Context, conn *session.Connected, country string) {
+	start := time.Now()
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+
+	render := func() {
+		s, err := conn.Tunnel.Status()
+		if err != nil {
+			return
+		}
+		// Dot + handshake age: green when the link is fresh (WireGuard
+		// re-handshakes ~every 2min), yellow when it's gone quiet.
+		dot, age := "\033[33m●\033[0m", "—"
+		if !s.LastHandshake.IsZero() {
+			d := time.Since(s.LastHandshake).Round(time.Second)
+			age = d.String() + " ago"
+			if d < 180*time.Second {
+				dot = "\033[32m●\033[0m"
+			}
+		}
+		up := time.Since(start).Round(time.Second)
+		// \r returns to line start, \033[K clears to end of line.
+		fmt.Printf("\r\033[K%s %s · up %s · handshake %s · ↓ %s ↑ %s",
+			dot, country, up, age, humanBytes(s.RxBytes), humanBytes(s.TxBytes))
+	}
+
+	render()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			render()
+		}
+	}
+}
+
+// humanBytes formats a byte count with a binary unit suffix.
+func humanBytes(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := uint64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGT"[exp])
 }
 
 // egressIP fetches the apparent public IP as seen from the far end of
