@@ -1,0 +1,3 @@
+# Teardown: client terminate plus server-side dead-man's switch
+
+Ephemerality is the product promise, so teardown is belt-and-suspenders. On clean exit the client calls TerminateInstances. Independently, the Exit runs a systemd timer that checks `wg show wg0 latest-handshakes` and runs `shutdown -h now` after ~5 minutes of silence, with the instance's shutdown behavior set to *terminate*. WireGuard re-handshakes roughly every 2 minutes while a client is connected, so handshake silence is a reliable disconnect signal. This needs no IAM credentials on the Exit (rejected: server calling TerminateInstances itself) and no hard session cap (rejected: fixed max lifetime, which kills long sessions yet still orphans instances for hours after a crash).

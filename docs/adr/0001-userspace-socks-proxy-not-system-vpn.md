@@ -1,0 +1,3 @@
+# Userspace SOCKS proxy instead of a system-wide VPN
+
+The client embeds wireguard-go as a library via its `tun/netstack` package and exposes the tunnel as a local SOCKS5 proxy, rather than creating a real utun device. A reader will expect a VPN tool to route the whole system; this one deliberately doesn't. The trade-off: no root/sudo ever, no OS routing or DNS state to mutate or clean up, and wireguard-go is exercised as a library rather than shelled out to — at the cost of only proxying apps that are pointed at the proxy. The tunnel layer sits behind a small interface so a utun backend (true system-wide mode, requires sudo) can be added later without touching the provisioner.

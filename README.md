@@ -1,0 +1,26 @@
+# poof
+
+An ephemeral personal VPN. Pick a country; a fresh WireGuard exit appears there, your traffic comes out of it, and the moment you disconnect — poof, it's gone.
+
+```
+poof up japan      # provision exit in ap-northeast-1, connect, serve SOCKS5 on localhost:1080
+poof regions       # list available countries
+poof nuke          # hunt down and destroy every exit poof ever created, in any region
+```
+
+Point a browser (or `curl --proxy socks5h://localhost:1080`) at the proxy. Ctrl-C tears the exit down. If the client dies uncleanly, the exit's dead-man's switch self-destructs it within ~5 minutes.
+
+Design vocabulary lives in [CONTEXT.md](./CONTEXT.md); the load-bearing decisions are in [docs/adr/](./docs/adr/).
+
+## Shape
+
+- **Client**: single Go binary. Embeds wireguard-go via `tun/netstack` (no root), speaks SOCKS5 locally, resolves hostnames *through* the tunnel (1.1.1.1) so DNS never leaks.
+- **Exit**: `t4g.nano` on Amazon Linux 2023, default VPC, kernel WireGuard, configured entirely by cloud-init user-data. No SSH, only UDP 51820 open. Tagged `poof=1` so `nuke` can find it.
+- **State**: none. Fresh keypairs per session, generated in memory. The EC2 tag is the only durable record.
+
+## Weekend build order
+
+1. **Sat AM — tunnel core**: netstack device + hardcoded peer config; prove a handshake and an HTTP GET through the tunnel against a hand-made WG server.
+2. **Sat PM — provisioner**: EC2 launch with rendered user-data (wg0.conf, sysctl, nftables, dead-man's switch timer), poll until handshake answers, terminate on Ctrl-C.
+3. **Sun AM — SOCKS5 + remote DNS**: proxy listener dialing via netstack `DialContext`, domain-type addresses resolved over the tunnel.
+4. **Sun PM — CLI polish**: country→region map, `regions`, `nuke` sweep, live status line (handshake age, bytes in/out).
