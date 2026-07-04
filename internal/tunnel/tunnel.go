@@ -1,7 +1,10 @@
 // Package tunnel provides the WireGuard tunnel the rest of poof dials
-// through. The Tunnel interface is the seam from ADR-0001: today's
-// implementation is userspace netstack (no root); a utun backend for
-// system-wide capture can slot in later without touching callers.
+// through. It offers two backends behind a common status/close contract
+// (the seam from ADR-0001):
+//
+//   - Netstack: userspace gVisor stack, no root, drives a SOCKS proxy.
+//   - System (macOS): a real utun device plus OS routing/DNS changes for
+//     whole-machine capture (needs root). See ADR-0004.
 package tunnel
 
 import (
@@ -10,7 +13,8 @@ import (
 	"time"
 )
 
-// Tunnel is a connected WireGuard link to the Exit.
+// Tunnel is a userspace WireGuard link that connections are dialed
+// through (the Netstack/SOCKS backend).
 type Tunnel interface {
 	// DialContext opens a connection through the tunnel, so it egresses
 	// from the Exit. Same contract as net.Dialer.DialContext.
@@ -20,6 +24,23 @@ type Tunnel interface {
 	Status() (Status, error)
 
 	// Close tears down the local end of the tunnel.
+	Close() error
+}
+
+// StatusReporter is the minimum both backends expose: enough to drive
+// the live status line.
+type StatusReporter interface {
+	Status() (Status, error)
+}
+
+// SystemTunnel is the system-wide (utun) backend returned by NewSystem.
+// Beyond reporting status it owns OS-level routing/DNS state, so Close
+// must reverse everything it changed.
+type SystemTunnel interface {
+	StatusReporter
+	// WaitForHandshake blocks until the Exit answers or ctx expires.
+	WaitForHandshake(ctx context.Context) error
+	// Close restores routing and DNS, then tears down the device.
 	Close() error
 }
 

@@ -30,13 +30,29 @@ type Options struct {
 	// completes, printing its ID for console-log debugging instead of
 	// tearing it down. Debug use only.
 	KeepOnFailure bool
+	// System routes the whole machine through the Exit (utun + OS routing
+	// changes, needs root) instead of serving a SOCKS proxy.
+	System bool
 }
 
 // Connected is the live state handed to a caller once the Exit answers.
+// Exactly one backend is non-nil, depending on Options.System.
 type Connected struct {
 	Exit   *provision.Exit
-	Tunnel *tunnel.Netstack
+	Proxy  *tunnel.Netstack    // proxy (SOCKS) mode
+	System tunnel.SystemTunnel // system-wide mode
 }
+
+// Reporter returns whichever backend is live, for the status line.
+func (c *Connected) Reporter() tunnel.StatusReporter {
+	if c.System != nil {
+		return c.System
+	}
+	return c.Proxy
+}
+
+// IsSystem reports whether this is a system-wide session.
+func (c *Connected) IsSystem() bool { return c.System != nil }
 
 // Provision launches an Exit for the chosen Country and brings up the
 // local tunnel to it, blocking until the first handshake or ctx expiry.
@@ -101,17 +117,42 @@ func Provision(ctx context.Context, opts Options) (*Connected, func(), error) {
 		return nil, nil, err
 	}
 
-	tun, err := tunnel.NewNetstack(tunnel.Config{
+	cfg := tunnel.Config{
 		PrivateKey: clientPriv,
 		LocalIP:    netip.MustParseAddr(clientTunnelIP),
 		PeerPublic: serverPriv.Public(),
 		Endpoint:   endpoint,
 		DNS:        []netip.Addr{netip.MustParseAddr("1.1.1.1")},
 		Verbose:    opts.Verbose,
-	})
-	if err != nil {
-		teardown()
-		return nil, nil, err
+	}
+
+	// Select the backend. Both expose WaitForHandshake + Close; the
+	// status line reads through Connected.Reporter.
+	conn := &Connected{Exit: exit}
+	var waiter interface {
+		WaitForHandshake(context.Context) error
+	}
+	var closer interface{ Close() error }
+
+	if opts.System {
+		exitAddr, err := netip.ParseAddr(exit.PublicIP)
+		if err != nil {
+			teardown()
+			return nil, nil, err
+		}
+		sys, err := tunnel.NewSystem(cfg, exitAddr, netip.MustParseAddr(serverTunnelIP))
+		if err != nil {
+			teardown()
+			return nil, nil, err
+		}
+		conn.System, waiter, closer = sys, sys, sys
+	} else {
+		ns, err := tunnel.NewNetstack(cfg)
+		if err != nil {
+			teardown()
+			return nil, nil, err
+		}
+		conn.Proxy, waiter, closer = ns, ns, ns
 	}
 
 	// Cloud-init installs WireGuard before answering, so allow generous
@@ -119,8 +160,8 @@ func Provision(ctx context.Context, opts Options) (*Connected, func(), error) {
 	hsCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 	fmt.Println("→ waiting for first handshake (cloud-init is installing WireGuard)...")
-	if err := tun.WaitForHandshake(hsCtx); err != nil {
-		tun.Close()
+	if err := waiter.WaitForHandshake(hsCtx); err != nil {
+		closer.Close()
 		if opts.KeepOnFailure {
 			fmt.Printf("!! handshake failed but keeping exit for debug:\n"+
 				"   instance %s in %s at %s\n"+
@@ -135,8 +176,12 @@ func Provision(ctx context.Context, opts Options) (*Connected, func(), error) {
 	}
 
 	full := func() {
-		tun.Close()
+		// Restore local networking first (system mode), then destroy the
+		// Exit — the terminate call then goes over normal internet.
+		if err := closer.Close(); err != nil {
+			fmt.Printf("!! %v\n", err)
+		}
 		teardown()
 	}
-	return &Connected{Exit: exit, Tunnel: tun}, full, nil
+	return conn, full, nil
 }

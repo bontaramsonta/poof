@@ -29,11 +29,20 @@ func main() {
 
 	switch os.Args[1] {
 	case "up":
-		if len(os.Args) < 3 {
-			fmt.Fprintln(os.Stderr, "usage: poof up <country>")
+		country, system := parseUpArgs(os.Args[2:])
+		if country == "" {
+			fmt.Fprintln(os.Stderr, "usage: poof up [--system] <country>")
 			os.Exit(2)
 		}
-		if err := cmdUp(os.Args[2], profile, verbose); err != nil {
+		if system && os.Geteuid() != 0 {
+			fmt.Fprintln(os.Stderr,
+				"error: --system reroutes the whole machine and needs root.\n"+
+					"       re-run with sudo, preserving your AWS env, e.g.:\n"+
+					"         sudo --preserve-env=AWS_PROFILE,HOME,AWS_REGION "+
+					os.Args[0]+" up --system "+country)
+			os.Exit(1)
+		}
+		if err := cmdUp(country, profile, verbose, system); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -51,26 +60,43 @@ func main() {
 	}
 }
 
+// parseUpArgs extracts the country and the --system flag from `up`'s
+// arguments, in any order.
+func parseUpArgs(args []string) (country string, system bool) {
+	for _, a := range args {
+		switch a {
+		case "--system":
+			system = true
+		default:
+			if country == "" && !strings.HasPrefix(a, "-") {
+				country = a
+			}
+		}
+	}
+	return country, system
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, `poof — an ephemeral personal VPN
 
 usage:
-  poof up <country>   provision an exit, connect, tear down on Ctrl-C
-  poof regions        list available countries
-  poof nuke           destroy every exit poof ever created, everywhere
+  poof up <country>            provision an exit, serve a SOCKS5 proxy
+  poof up --system <country>   route the WHOLE machine (needs sudo)
+  poof regions                 list available countries
+  poof nuke                    destroy every exit poof made, everywhere
 
 env:
   AWS_PROFILE     AWS profile to use
   POOF_VERBOSE    set to enable WireGuard debug logging`)
 }
 
-func cmdUp(country, profile string, verbose bool) error {
+func cmdUp(country, profile string, verbose, system bool) error {
 	// Ctrl-C cancels ctx; teardown runs regardless via WithoutCancel.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	conn, teardown, err := session.Provision(ctx, session.Options{
-		Country: country, Profile: profile, Verbose: verbose,
+		Country: country, Profile: profile, Verbose: verbose, System: system,
 		KeepOnFailure: os.Getenv("POOF_KEEP") != "",
 	})
 	if err != nil {
@@ -80,26 +106,39 @@ func cmdUp(country, profile string, verbose bool) error {
 
 	fmt.Printf("\n✓ connected. exit is live in %s.\n", country)
 
-	// Prove egress: fetch our apparent public IP THROUGH the tunnel.
-	if ip := egressIP(ctx, conn); ip != "" {
-		fmt.Printf("✓ traffic through the tunnel exits from: %s\n", ip)
-	}
-
-	// Serve the SOCKS5 proxy so apps can actually use the tunnel.
-	go func() {
-		if err := socks.NewServer(conn.Tunnel).ListenAndServe(ctx, socksAddr); err != nil {
-			fmt.Fprintf(os.Stderr, "!! socks proxy stopped: %v\n", err)
+	label := country
+	if conn.IsSystem() {
+		// Whole machine is already routed; a plain request egresses from
+		// the Exit with no proxy configured.
+		if ip := egressIP(ctx, http.DefaultClient); ip != "" {
+			fmt.Printf("✓ ALL traffic now exits from: %s\n", ip)
 		}
-	}()
-	fmt.Printf("✓ SOCKS5 proxy listening on %s\n", socksAddr)
-	fmt.Printf("\n  point an app at it, e.g.:\n"+
-		"    curl --proxy socks5h://%s https://api.ipify.org\n"+
-		"    (socks5h = resolve DNS through the tunnel, no leaks)\n", socksAddr)
+		fmt.Println("\n  every app on this machine is going through the exit.")
+		label = country + " · system"
+	} else {
+		// Prove egress through the proxy dialer, then serve SOCKS5.
+		proxyClient := &http.Client{
+			Transport: &http.Transport{DialContext: conn.Proxy.DialContext},
+			Timeout:   10 * time.Second,
+		}
+		if ip := egressIP(ctx, proxyClient); ip != "" {
+			fmt.Printf("✓ traffic through the tunnel exits from: %s\n", ip)
+		}
+		go func() {
+			if err := socks.NewServer(conn.Proxy).ListenAndServe(ctx, socksAddr); err != nil {
+				fmt.Fprintf(os.Stderr, "!! socks proxy stopped: %v\n", err)
+			}
+		}()
+		fmt.Printf("✓ SOCKS5 proxy listening on %s\n", socksAddr)
+		fmt.Printf("\n  point an app at it, e.g.:\n"+
+			"    curl --proxy socks5h://%s https://api.ipify.org\n"+
+			"    (socks5h = resolve DNS through the tunnel, no leaks)\n", socksAddr)
+	}
 
 	fmt.Println("\n(press Ctrl-C to disconnect and destroy the exit)")
 
 	// Live status line until Ctrl-C.
-	runStatusLine(ctx, conn, country)
+	runStatusLine(ctx, conn, label)
 	fmt.Println()
 	return nil
 }
@@ -112,8 +151,9 @@ func runStatusLine(ctx context.Context, conn *session.Connected, country string)
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 
+	reporter := conn.Reporter()
 	render := func() {
-		s, err := conn.Tunnel.Status()
+		s, err := reporter.Status()
 		if err != nil {
 			return
 		}
@@ -158,13 +198,9 @@ func humanBytes(n uint64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGT"[exp])
 }
 
-// egressIP fetches the apparent public IP as seen from the far end of
-// the tunnel — the proof that traffic really exits from the Exit.
-func egressIP(ctx context.Context, conn *session.Connected) string {
-	client := &http.Client{
-		Transport: &http.Transport{DialContext: conn.Tunnel.DialContext},
-		Timeout:   10 * time.Second,
-	}
+// egressIP fetches the apparent public IP using the given client — proof
+// that traffic really exits from the Exit.
+func egressIP(ctx context.Context, client *http.Client) string {
 	req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.ipify.org", nil)
 	resp, err := client.Do(req)
 	if err != nil {

@@ -3,12 +3,21 @@
 An ephemeral personal VPN. Pick a country; a fresh WireGuard exit appears there, your traffic comes out of it, and the moment you disconnect — poof, it's gone.
 
 ```
-poof up japan      # provision exit in ap-northeast-1, connect, serve SOCKS5 on localhost:1080
-poof regions       # list available countries
-poof nuke          # hunt down and destroy every exit poof ever created, in any region
+poof up japan             # proxy mode: SOCKS5 on localhost:1080 (per-app, no root)
+sudo poof up --system japan  # system mode: route the WHOLE machine (needs root)
+poof regions              # list available countries
+poof nuke                 # hunt down and destroy every exit poof made, in any region
 ```
 
-Point a browser (or `curl --proxy socks5h://localhost:1080`) at the proxy. Ctrl-C tears the exit down. If the client dies uncleanly, the exit's dead-man's switch self-destructs it within ~5 minutes.
+**Proxy mode** (default): point a browser or `curl --proxy socks5h://localhost:1080` at the proxy. No root, nothing on your system is reconfigured.
+
+**System mode** (`--system`): every app on the machine egresses from the Exit. Needs root — it creates a `utun` device and rewrites routing + DNS, restoring both on exit (see [ADR-0004](./docs/adr/0004-system-wide-utun-routing.md)). Run it preserving your AWS env:
+
+```
+sudo --preserve-env=AWS_PROFILE,HOME,AWS_REGION poof up --system japan
+```
+
+Either way, Ctrl-C tears the exit down. If the client dies uncleanly, the exit's dead-man's switch self-destructs it within ~5 minutes.
 
 Design vocabulary lives in [CONTEXT.md](./CONTEXT.md); the load-bearing decisions are in [docs/adr/](./docs/adr/).
 

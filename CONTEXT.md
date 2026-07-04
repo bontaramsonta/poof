@@ -25,13 +25,17 @@ The escape hatch (`poof nuke`): find every Exit that poof ever created, in any C
 _Avoid_: cleanup, gc
 
 **Proxy**:
-The local doorway into the Session — apps that talk to the Proxy have their traffic (including name lookups) emerge from the Exit. Apps that don't are untouched; poof never reconfigures the system.
+The local doorway into a *proxy-mode* Session — apps that talk to the Proxy have their traffic (including name lookups) emerge from the Exit. Apps that don't are untouched; proxy mode never reconfigures the system.
 _Avoid_: listener, endpoint
+
+**Mode**:
+How a Session captures traffic. *Proxy mode* (default) serves a SOCKS Proxy and touches nothing else — per-app, no root. *System mode* (`--system`) reroutes the whole machine through the Exit via a real network interface, and must restore the machine's routing and DNS on teardown — whole-machine, needs root.
+_Avoid_: tunnel type
 
 ## Flagged ambiguities
 
 - **"Disconnect" has two faces.** A *clean* disconnect (Ctrl-C) tears the Exit down immediately; a *dirty* disconnect (crash, lost network) is only detected by the Dead-man's switch, so the Exit lives a few minutes longer. Both end the Session; only the speed differs.
-- **"VPN" is aspirational.** A Session today carries only traffic that is pointed at the Proxy, not the whole machine. System-wide capture is a possible future mode, not a synonym.
+- **"VPN" now has two Modes.** Proxy mode carries only traffic pointed at the Proxy (per-app); system mode carries the whole machine. "VPN" unqualified means whichever Mode the Session is in.
 
 ## Example dialogue
 
