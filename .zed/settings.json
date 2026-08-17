@@ -1,0 +1,7 @@
+{
+  // userdata.sh.tmpl is a Go text/template whose body is bash; the
+  // *.tmpl extension would otherwise get Go-template highlighting.
+  "file_types": {
+    "Shell Script": ["*.sh.tmpl"]
+  }
+}

@@ -74,6 +74,15 @@ func TestUserDataIsValidBash(t *testing.T) {
 	}
 }
 
+// TestUserDataStartsWithShebang guards the one failure mode extraction
+// introduced: EC2 silently refuses to run user data that doesn't begin
+// with "#!", and there's no SSH to notice.
+func TestUserDataStartsWithShebang(t *testing.T) {
+	if !strings.HasPrefix(userDataTmplSrc, "#!") {
+		t.Errorf("userdata.sh.tmpl must start with a shebang at byte 0, got %.20q", userDataTmplSrc)
+	}
+}
+
 func TestRenderUserDataRejectsBadIdle(t *testing.T) {
 	p := sampleParams(t)
 	p.IdleShutdownMin = 0
