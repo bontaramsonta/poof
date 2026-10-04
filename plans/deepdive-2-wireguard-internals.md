@@ -8,7 +8,7 @@
 ## Why this topic exists for you
 
 In **poof** (`~/p/poof`) we generated identities as raw Curve25519 keypairs in
-[`internal/wgkey/wgkey.go`](../internal/wgkey/wgkey.go) — 32 random bytes, three
+[`wgkey/wgkey.go`](../wgkey/wgkey.go) — 32 random bytes, three
 clamp bits, times the base point. We handed them to the engine via IPC in
 [`internal/tunnel/netstack.go`](../internal/tunnel/netstack.go), and in the logs
 we *watched the whole handshake*:
@@ -82,7 +82,7 @@ Exit never answers strangers).
 
 ## Anchors in the poof code
 
-- [`internal/wgkey/wgkey.go`](../internal/wgkey/wgkey.go) — Curve25519 keygen,
+- [`wgkey/wgkey.go`](../wgkey/wgkey.go) — Curve25519 keygen,
   clamping, hex vs base64.
 - [`internal/tunnel/netstack.go`](../internal/tunnel/netstack.go) — `IpcSet`
   private_key/public_key/endpoint/allowed_ip, `persistent_keepalive`, and the

@@ -7,6 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.32.27
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.311.0
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.69.5
+	github.com/aws/smithy-go v1.27.3
 	golang.org/x/crypto v0.53.0
 	golang.org/x/net v0.56.0
 	golang.zx2c4.com/wireguard v0.0.0-20260522210424-ecfc5a8d5446
@@ -24,7 +25,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.31.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.8 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.5 // indirect
-	github.com/aws/smithy-go v1.27.3 // indirect
 	github.com/google/btree v1.1.2 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/time v0.7.0 // indirect

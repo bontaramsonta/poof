@@ -17,7 +17,7 @@ import (
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
 	"github.com/bontaramsonta/poof/internal/tunnel"
-	"github.com/bontaramsonta/poof/internal/wgkey"
+	"github.com/bontaramsonta/poof/wgkey"
 )
 
 const (

@@ -8,7 +8,7 @@
 
 While building **poof** (`~/p/poof`), the Exit box turns a blank Amazon Linux
 into an internet router. The three lines that make that work are in
-[`internal/provision/userdata.go`](../internal/provision/userdata.go):
+[`exit/userdata.go`](../exit/userdata.go):
 
 ```
 echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-poof.conf   # host → router
@@ -93,11 +93,11 @@ Work these on a throwaway Linux VM or container; each teaches one concept:
 
 ## Anchors in the poof code
 
-- [`internal/provision/userdata.go`](../internal/provision/userdata.go) — the
+- [`exit/userdata.go`](../exit/userdata.go) — the
   nft masquerade + `ip_forward`, and the `wg-quick@wg0` that adds routes.
 - [`docs/adr/0002`](../docs/adr/0002-no-ssh-cloudinit-bootstrap.md) — why
   nftables (the iptables-missing bug).
-- The security group in [`internal/provision/aws.go`](../internal/provision/aws.go)
+- The security group in [`exit/aws.go`](../exit/aws.go)
   is a *cloud* firewall — contrast it with an in-box `filter` table.
 
 ## References

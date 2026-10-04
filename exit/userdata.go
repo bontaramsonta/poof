@@ -1,5 +1,5 @@
-// Package provision creates and destroys Exits on a cloud provider.
-package provision
+// Package exit creates and destroys Exits on a cloud provider.
+package exit
 
 import (
 	"bytes"
@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/bontaramsonta/poof/internal/wgkey"
+	"github.com/bontaramsonta/poof/wgkey"
 )
 
 // ExitParams are the values baked into an Exit's cloud-init at launch.
@@ -39,7 +39,7 @@ var userDataTmpl = template.Must(template.New("userdata").Parse(userDataTmplSrc)
 // RenderUserData produces the cloud-init script for the given Exit.
 func RenderUserData(p ExitParams) (string, error) {
 	if p.IdleShutdownMin <= 0 {
-		return "", fmt.Errorf("provision: IdleShutdownMin must be positive")
+		return "", fmt.Errorf("exit: IdleShutdownMin must be positive")
 	}
 	data := struct {
 		ExitParams
@@ -52,7 +52,7 @@ func RenderUserData(p ExitParams) (string, error) {
 	}
 	var buf bytes.Buffer
 	if err := userDataTmpl.Execute(&buf, data); err != nil {
-		return "", fmt.Errorf("provision: rendering user-data: %w", err)
+		return "", fmt.Errorf("exit: rendering user-data: %w", err)
 	}
 	return buf.String(), nil
 }

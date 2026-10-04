@@ -13,7 +13,7 @@ import (
 	"golang.org/x/net/proxy"
 
 	"github.com/bontaramsonta/poof/internal/socks"
-	"github.com/bontaramsonta/poof/internal/wgkey"
+	"github.com/bontaramsonta/poof/wgkey"
 )
 
 // TestSOCKSOverTunnel is the whole client stack in one process: a SOCKS5

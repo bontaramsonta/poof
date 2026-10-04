@@ -1,4 +1,4 @@
-package provision
+package exit
 
 import (
 	"os"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bontaramsonta/poof/internal/wgkey"
+	"github.com/bontaramsonta/poof/wgkey"
 )
 
 func sampleParams(t *testing.T) ExitParams {

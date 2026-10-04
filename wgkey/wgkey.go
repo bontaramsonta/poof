@@ -46,3 +46,17 @@ func (k Key) Hex() string { return hex.EncodeToString(k[:]) }
 
 // Base64 is the encoding wg(8) config files and tools expect.
 func (k Key) Base64() string { return base64.StdEncoding.EncodeToString(k[:]) }
+
+// ParseBase64 decodes a key in the wg(8) encoding.
+func ParseBase64(s string) (Key, error) {
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return Key{}, fmt.Errorf("wgkey: decoding base64: %w", err)
+	}
+	if len(b) != len(Key{}) {
+		return Key{}, fmt.Errorf("wgkey: key is %d bytes, want 32", len(b))
+	}
+	var k Key
+	copy(k[:], b)
+	return k, nil
+}

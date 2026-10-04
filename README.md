@@ -6,7 +6,6 @@ An ephemeral personal VPN. Pick a country; a fresh WireGuard exit appears there,
 poof up japan             # proxy mode: SOCKS5 on localhost:1080 (per-app, no root)
 sudo poof up --system japan  # system mode: route the WHOLE machine (needs root)
 poof regions              # list available countries
-poof nuke                 # hunt down and destroy every exit poof made, in any region
 ```
 
 **Proxy mode** (default): point a browser or `curl --proxy socks5h://localhost:1080` at the proxy. No root, nothing on your system is reconfigured.
@@ -24,7 +23,8 @@ Design vocabulary lives in [CONTEXT.md](./CONTEXT.md); the load-bearing decision
 ## Shape
 
 - **Client**: single Go binary. Embeds wireguard-go via `tun/netstack` (no root), speaks SOCKS5 locally, resolves hostnames *through* the tunnel (1.1.1.1) so DNS never leaks.
-- **Exit**: `t4g.nano` on Amazon Linux 2023, default VPC, kernel WireGuard, configured entirely by cloud-init user-data. No SSH, only UDP 51820 open. Tagged `poof=1` so `nuke` can find it.
+- **Exit**: `t4g.nano` on Amazon Linux 2023, default VPC, kernel WireGuard, configured entirely by cloud-init user-data. No SSH. Launches into one persistent security group per region, `poof-wireguard`, which opens only UDP 51820 and is never deleted. Tagged `poof=1`.
+- **Packages**: `exit` (Country map, user-data, EC2 launch/terminate) and `wgkey` are public, so other clients — the [poof-android](https://github.com/bontaramsonta/poof-android) control plane — launch interchangeable Exits.
 - **State**: none. Fresh keypairs per session, generated in memory. The EC2 tag is the only durable record.
 
 ## Weekend build order

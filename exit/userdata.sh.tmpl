@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# Go text/template. Rendered by provision.RenderUserData (userdata.go);
-# fields come from provision.ExitParams -- except ServerPrivateB64 and
+# Go text/template. Rendered by exit.RenderUserData (userdata.go);
+# fields come from exit.ExitParams -- except ServerPrivateB64 and
 # ClientPublicB64, which are synthesized at render time because
 # wgkey.Key deliberately has no String method. Do not grep ExitParams
 # for them.

@@ -1,4 +1,4 @@
-package provision
+package exit
 
 import (
 	"fmt"
@@ -28,7 +28,7 @@ var countryToRegion = map[string]string{
 func RegionFor(country string) (string, error) {
 	r, ok := countryToRegion[strings.ToLower(strings.TrimSpace(country))]
 	if !ok {
-		return "", fmt.Errorf("provision: unknown country %q (try `poof regions`)", country)
+		return "", fmt.Errorf("exit: unknown country %q (try `poof regions`)", country)
 	}
 	return r, nil
 }
@@ -43,8 +43,7 @@ func Countries() []string {
 	return out
 }
 
-// AllRegions returns every region poof might have placed an Exit in —
-// the search space for `poof nuke`.
+// AllRegions returns every region poof might have placed an Exit in.
 func AllRegions() []string {
 	seen := map[string]bool{}
 	out := []string{}

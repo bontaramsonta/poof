@@ -14,7 +14,7 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 
-	"github.com/bontaramsonta/poof/internal/wgkey"
+	"github.com/bontaramsonta/poof/wgkey"
 )
 
 const (

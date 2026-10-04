@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bontaramsonta/poof/internal/provision"
+	"github.com/bontaramsonta/poof/exit"
 	"github.com/bontaramsonta/poof/internal/session"
 	"github.com/bontaramsonta/poof/internal/socks"
 )
@@ -48,12 +48,7 @@ func main() {
 		}
 	case "regions":
 		fmt.Println("available countries:")
-		fmt.Println("  " + strings.Join(provision.Countries(), ", "))
-	case "nuke":
-		if err := cmdNuke(profile); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
+		fmt.Println("  " + strings.Join(exit.Countries(), ", "))
 	default:
 		usage()
 		os.Exit(2)
@@ -83,7 +78,6 @@ usage:
   poof up <country>            provision an exit, serve a SOCKS5 proxy
   poof up --system <country>   route the WHOLE machine (needs sudo)
   poof regions                 list available countries
-  poof nuke                    destroy every exit poof made, everywhere
 
 env:
   AWS_PROFILE     AWS profile to use
@@ -210,32 +204,4 @@ func egressIP(ctx context.Context, client *http.Client) string {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	return strings.TrimSpace(string(b))
-}
-
-func cmdNuke(profile string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-
-	regions := provision.AllRegions()
-	fmt.Printf("sweeping %d regions for poof exits...\n", len(regions))
-	total := 0
-	for _, region := range regions {
-		p, err := provision.NewProvisioner(ctx, region, profile)
-		if err != nil {
-			fmt.Printf("  %s: %v\n", region, err)
-			continue
-		}
-		res := p.Nuke(ctx)
-		if res.Err != nil {
-			fmt.Printf("  %s: %v\n", region, res.Err)
-			continue
-		}
-		if len(res.TerminatedInstance) > 0 || len(res.DeletedSGs) > 0 {
-			fmt.Printf("  %s: terminated %d instance(s), deleted %d group(s)\n",
-				region, len(res.TerminatedInstance), len(res.DeletedSGs))
-			total += len(res.TerminatedInstance)
-		}
-	}
-	fmt.Printf("done. %d exit(s) destroyed.\n", total)
-	return nil
 }
