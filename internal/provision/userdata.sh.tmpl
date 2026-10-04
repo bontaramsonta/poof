@@ -10,6 +10,14 @@
 # user data that does not begin with "#!". There is no SSH to debug it.
 set -euxo pipefail
 
+# 0. Swap. A t4g.nano has 512 MB, and dnf loading the ~80 MB AL2023 repo
+#    metadata is intermittently OOM-killed without it -- the Exit then
+#    never becomes a WireGuard server.
+fallocate -l 1G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+
 # 1. Kernel WireGuard plus nftables (AL2023 ships neither iptables nor
 #    nft by default; the server has root and wants raw throughput).
 dnf install -y wireguard-tools nftables
