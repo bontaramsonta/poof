@@ -90,3 +90,16 @@ func TestRenderUserDataRejectsBadIdle(t *testing.T) {
 		t.Error("expected error for zero IdleShutdownMin")
 	}
 }
+
+// TestSwapBeforeDnf guards the OOM fix: on a 512 MB t4g.nano, dnf is
+// intermittently OOM-killed unless swap is on first.
+func TestSwapBeforeDnf(t *testing.T) {
+	out, err := RenderUserData(sampleParams(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	swap, dnf := strings.Index(out, "swapon /swapfile"), strings.Index(out, "dnf install")
+	if swap < 0 || dnf < 0 || swap > dnf {
+		t.Errorf("swap must be enabled before dnf runs (swapon at %d, dnf at %d)", swap, dnf)
+	}
+}
