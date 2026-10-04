@@ -176,3 +176,23 @@ func (p *Provisioner) Terminate(ctx context.Context, instanceID string) error {
 	}
 	return nil
 }
+
+// ConsoleOutput returns the instance's latest serial console output,
+// decoded. Used by the phone-test mode to read handshake-age lines.
+func (p *Provisioner) ConsoleOutput(ctx context.Context, instanceID string) (string, error) {
+	out, err := p.ec2.GetConsoleOutput(ctx, &ec2.GetConsoleOutputInput{
+		InstanceId: aws.String(instanceID),
+		Latest:     aws.Bool(true),
+	})
+	if err != nil {
+		return "", fmt.Errorf("provision: console output for %s: %w", instanceID, err)
+	}
+	if out.Output == nil {
+		return "", nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(*out.Output)
+	if err != nil {
+		return "", fmt.Errorf("provision: decoding console output: %w", err)
+	}
+	return string(raw), nil
+}

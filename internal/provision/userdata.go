@@ -25,7 +25,20 @@ type ExitParams struct {
 	// IdleShutdownMin is how long the Exit tolerates handshake silence
 	// before self-destructing (ADR-0003).
 	IdleShutdownMin int
+
+	// PhoneTest replaces the Dead-man's switch with a hard stop after
+	// PhoneTestHardStopMin and logs the handshake age to the serial
+	// console every 30 s. Debug only: measures how long a sleeping phone
+	// stays silent (poof-android#12).
+	PhoneTest bool
 }
+
+// PhoneTestHardStopMin bounds a PhoneTest Exit's life, since it has no
+// Dead-man's switch.
+const PhoneTestHardStopMin = 120
+
+// PhoneTestLogPrefix marks handshake-age lines on the serial console.
+const PhoneTestLogPrefix = "POOFHS"
 
 //go:embed userdata.sh.tmpl
 var userDataTmplSrc string
@@ -45,10 +58,14 @@ func RenderUserData(p ExitParams) (string, error) {
 		ExitParams
 		ServerPrivateB64 string
 		ClientPublicB64  string
+		HardStopMin      int
+		LogPrefix        string
 	}{
 		ExitParams:       p,
 		ServerPrivateB64: p.ServerPrivate.Base64(),
 		ClientPublicB64:  p.ClientPublic.Base64(),
+		HardStopMin:      PhoneTestHardStopMin,
+		LogPrefix:        PhoneTestLogPrefix,
 	}
 	var buf bytes.Buffer
 	if err := userDataTmpl.Execute(&buf, data); err != nil {

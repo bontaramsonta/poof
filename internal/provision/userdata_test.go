@@ -90,3 +90,28 @@ func TestRenderUserDataRejectsBadIdle(t *testing.T) {
 		t.Error("expected error for zero IdleShutdownMin")
 	}
 }
+
+func TestPhoneTestUserData(t *testing.T) {
+	p := sampleParams(t)
+	p.PhoneTest = true
+	out, err := RenderUserData(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "poof-deadman") {
+		t.Error("phone test must not install the dead-man's switch")
+	}
+	if !strings.Contains(out, "shutdown -h +120") {
+		t.Error("phone test hard stop missing")
+	}
+	if !strings.Contains(out, PhoneTestLogPrefix) {
+		t.Error("handshake-age logger missing")
+	}
+	f := filepath.Join(t.TempDir(), "userdata.sh")
+	if err := os.WriteFile(f, []byte(out), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := exec.Command("bash", "-n", f).CombinedOutput(); err != nil {
+		t.Fatalf("phone-test script has syntax errors: %v\n%s", err, b)
+	}
+}

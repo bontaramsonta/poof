@@ -44,6 +44,43 @@ nft add chain ip poof forward "{ type filter hook forward priority 0 ; policy ac
 # 4. Bring the tunnel up now and on every boot.
 systemctl enable --now wg-quick@wg0
 
+{{- if .PhoneTest}}
+# 5. PHONE TEST (debug): no Dead-man's switch. A hard stop bounds the
+#    Exit's life instead, and the handshake age goes to the serial
+#    console every 30 s so the client can read it via GetConsoleOutput.
+shutdown -h +{{.HardStopMin}}
+
+cat >/usr/local/bin/poof-hslog.sh <<'EOF'
+#!/bin/bash
+now=$(date +%s)
+newest=0
+while read -r _peer ts; do
+  [ "$ts" -gt "$newest" ] && newest=$ts
+done < <(wg show wg0 latest-handshakes)
+if [ "$newest" -eq 0 ]; then age=none; else age=$(( now - newest )); fi
+echo "{{.LogPrefix}} $now $age" >/dev/console
+EOF
+chmod +x /usr/local/bin/poof-hslog.sh
+
+cat >/etc/systemd/system/poof-hslog.service <<'EOF'
+[Unit]
+Description=poof phone-test handshake logger
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/poof-hslog.sh
+EOF
+cat >/etc/systemd/system/poof-hslog.timer <<'EOF'
+[Unit]
+Description=log handshake age every 30s
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+AccuracySec=1s
+[Install]
+WantedBy=timers.target
+EOF
+systemctl enable --now poof-hslog.timer
+{{- else}}
 # 5. Dead-man's switch: if no handshake for {{.IdleShutdownMin}} min,
 #    self-destruct. shutdown == terminate (set at launch time).
 cat >/usr/local/bin/poof-deadman.sh <<'EOF'
@@ -83,3 +120,4 @@ OnUnitActiveSec=1min
 WantedBy=timers.target
 EOF
 systemctl enable --now poof-deadman.timer
+{{- end}}

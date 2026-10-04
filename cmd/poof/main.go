@@ -42,6 +42,16 @@ func main() {
 					os.Args[0]+" up --system "+country)
 			os.Exit(1)
 		}
+		if os.Getenv("POOF_PHONE_TEST") != "" {
+			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+			err := session.PhoneTest(ctx, session.Options{Country: country, Profile: profile})
+			stop()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if err := cmdUp(country, profile, verbose, system); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
