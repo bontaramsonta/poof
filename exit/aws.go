@@ -104,21 +104,37 @@ func tagSpec(rt ec2types.ResourceType, name string, extra map[string]string) ec2
 // It does NOT wait for the tunnel — that's the client's WaitForHandshake
 // against the returned PublicIP.
 func (p *Provisioner) Launch(ctx context.Context, userData string, extraTags map[string]string) (*Exit, error) {
-	amiID, err := p.latestAMI(ctx)
-	if err != nil {
-		return nil, err
-	}
 	sgID, err := p.EnsureSecurityGroup(ctx)
 	if err != nil {
 		return nil, err
 	}
+	id, err := p.RunInstance(ctx, userData, sgID, extraTags)
+	if err != nil {
+		return nil, err
+	}
+	ip, err := p.WaitForPublicIP(ctx, id)
+	if err != nil {
+		// Best-effort cleanup so a failed launch doesn't orphan a box.
+		_ = p.Terminate(context.WithoutCancel(ctx), id)
+		return nil, err
+	}
+	return &Exit{Region: p.region, InstanceID: id, PublicIP: ip}, nil
+}
 
+// RunInstance starts one Exit instance in the given security group and
+// returns its ID. Callers composing Launch's steps themselves own the
+// cleanup if a later step fails.
+func (p *Provisioner) RunInstance(ctx context.Context, userData, securityGroupID string, extraTags map[string]string) (string, error) {
+	amiID, err := p.latestAMI(ctx)
+	if err != nil {
+		return "", err
+	}
 	run, err := p.ec2.RunInstances(ctx, &ec2.RunInstancesInput{
 		ImageId:                           aws.String(amiID),
 		InstanceType:                      instanceType,
 		MinCount:                          aws.Int32(1),
 		MaxCount:                          aws.Int32(1),
-		SecurityGroupIds:                  []string{sgID},
+		SecurityGroupIds:                  []string{securityGroupID},
 		UserData:                          aws.String(base64.StdEncoding.EncodeToString([]byte(userData))),
 		InstanceInitiatedShutdownBehavior: ec2types.ShutdownBehaviorTerminate,
 		TagSpecifications: []ec2types.TagSpecification{
@@ -126,17 +142,9 @@ func (p *Provisioner) Launch(ctx context.Context, userData string, extraTags map
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("exit: launching instance: %w", err)
+		return "", fmt.Errorf("exit: launching instance: %w", err)
 	}
-	id := *run.Instances[0].InstanceId
-
-	ip, err := p.waitForPublicIP(ctx, id)
-	if err != nil {
-		// Best-effort cleanup so a failed launch doesn't orphan a box.
-		_ = p.Terminate(context.WithoutCancel(ctx), id)
-		return nil, err
-	}
-	return &Exit{Region: p.region, InstanceID: id, PublicIP: ip}, nil
+	return *run.Instances[0].InstanceId, nil
 }
 
 func (p *Provisioner) latestAMI(ctx context.Context) (string, error) {
@@ -251,7 +259,8 @@ func apiErrorCode(err error) string {
 	return ""
 }
 
-func (p *Provisioner) waitForPublicIP(ctx context.Context, id string) (string, error) {
+// WaitForPublicIP polls until the instance has a public IP or ctx ends.
+func (p *Provisioner) WaitForPublicIP(ctx context.Context, id string) (string, error) {
 	tick := time.NewTicker(2 * time.Second)
 	defer tick.Stop()
 	for {
