@@ -22,6 +22,7 @@ var countryToRegion = map[string]string{
 	"india":     "ap-south-1",
 	"canada":    "ca-central-1",
 	"brazil":    "sa-east-1",
+	"thailand":  "ap-southeast-7",
 }
 
 // RegionFor resolves a Country name (case-insensitive) to an AWS region.
