@@ -16,6 +16,14 @@ poof regions              # list available countries
 sudo --preserve-env=AWS_PROFILE,HOME,AWS_REGION poof up --system japan
 ```
 
+**Static IP** (`--static-ip <name>`): for APIs that allowlist your source IP. The first run allocates an Elastic IP under that name; every later run with the same name and country reuses it. It outlives the session and is billed while idle (~$3.60/month) until `poof static-ip release <country> <name>`. `poof static-ip` lists them. See [ADR-0006](./docs/adr/0006-named-static-ip.md).
+
+```
+poof up india --static-ip groww --only api.groww.in
+```
+
+`--only` sends just those hosts (and their subdomains) through the exit; everything else on the proxy goes direct. Clients MUST use `socks5h` so the proxy sees the hostname.
+
 Either way, Ctrl-C tears the exit down. If the client dies uncleanly, the exit's dead-man's switch self-destructs it within ~5 minutes.
 
 Design vocabulary lives in [CONTEXT.md](./CONTEXT.md); the load-bearing decisions are in [docs/adr/](./docs/adr/).
@@ -25,7 +33,7 @@ Design vocabulary lives in [CONTEXT.md](./CONTEXT.md); the load-bearing decision
 - **Client**: single Go binary. Embeds wireguard-go via `tun/netstack` (no root), speaks SOCKS5 locally, resolves hostnames *through* the tunnel (1.1.1.1) so DNS never leaks.
 - **Exit**: `t4g.nano` on Amazon Linux 2023, default VPC, kernel WireGuard, configured entirely by cloud-init user-data. No SSH. Launches into one persistent security group per region, `poof-wireguard`, which opens only UDP 51820 and is never deleted. Tagged `poof=1`.
 - **Packages**: `exit` (Country map, user-data, EC2 launch/terminate) and `wgkey` are public, so other clients — the [poof-android](https://github.com/bontaramsonta/poof-android) control plane — launch interchangeable Exits.
-- **State**: none. Fresh keypairs per session, generated in memory. The EC2 tag is the only durable record.
+- **State**: none, except named Static IPs. Fresh keypairs per session, generated in memory. EC2 tags are the only durable record.
 
 ## Weekend build order
 

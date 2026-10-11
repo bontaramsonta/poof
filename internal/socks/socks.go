@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -43,9 +44,36 @@ const (
 // CONNECT through the provided Dialer.
 type Server struct {
 	dialer Dialer
+	// direct and only are set by NewSplitServer: targets matching only
+	// go through dialer, everything else through direct.
+	direct Dialer
+	only   []string
 }
 
 func NewServer(d Dialer) *Server { return &Server{dialer: d} }
+
+// NewSplitServer relays only CONNECTs to the given hosts, or their
+// subdomains, through tunnel; every other target goes through direct.
+// IP-literal targets never match, so clients MUST send hostnames
+// (socks5h) for a matching host to reach the tunnel.
+func NewSplitServer(tunnel, direct Dialer, only []string) *Server {
+	return &Server{dialer: tunnel, direct: direct, only: only}
+}
+
+// dialerFor picks the Dialer for a "host:port" target.
+func (s *Server) dialerFor(target string) Dialer {
+	if s.direct == nil {
+		return s.dialer
+	}
+	host, _, _ := net.SplitHostPort(target)
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	for _, h := range s.only {
+		if host == h || strings.HasSuffix(host, "."+h) {
+			return s.dialer
+		}
+	}
+	return s.direct
+}
 
 // ListenAndServe serves until the listener is closed or ctx is done.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
@@ -86,7 +114,7 @@ func (s *Server) handle(ctx context.Context, client net.Conn) {
 	// it inside the tunnel (no local DNS leak).
 	dialCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	remote, err := s.dialer.DialContext(dialCtx, "tcp", target)
+	remote, err := s.dialerFor(target).DialContext(dialCtx, "tcp", target)
 	if err != nil {
 		reply(client, repGeneralFailure)
 		return

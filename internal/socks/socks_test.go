@@ -153,3 +153,34 @@ func TestHostnamePassedThrough(t *testing.T) {
 		t.Fatal("dialer never called")
 	}
 }
+
+type namedDialer string
+
+func (namedDialer) DialContext(context.Context, string, string) (net.Conn, error) {
+	return nil, fmt.Errorf("not dialable")
+}
+
+func TestSplitServerRoutesOnlyListedHosts(t *testing.T) {
+	s := NewSplitServer(namedDialer("tunnel"), namedDialer("direct"), []string{"api.groww.in"})
+	cases := map[string]Dialer{
+		"api.groww.in:443":      namedDialer("tunnel"),
+		"API.Groww.in.:443":     namedDialer("tunnel"),
+		"v2.api.groww.in:443":   namedDialer("tunnel"),
+		"groww.in:443":          namedDialer("direct"),
+		"evilapi.groww.in:443":  namedDialer("direct"),
+		"api.groww.in.evil:443": namedDialer("direct"),
+		"1.2.3.4:443":           namedDialer("direct"),
+	}
+	for target, want := range cases {
+		if got := s.dialerFor(target); got != want {
+			t.Errorf("%s: routed via %v, want %v", target, got, want)
+		}
+	}
+}
+
+func TestPlainServerRoutesEverythingThroughTunnel(t *testing.T) {
+	s := NewServer(namedDialer("tunnel"))
+	if got := s.dialerFor("example.com:443"); got != namedDialer("tunnel") {
+		t.Errorf("routed via %v, want tunnel", got)
+	}
+}

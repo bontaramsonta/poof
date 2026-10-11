@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -29,46 +30,87 @@ func main() {
 
 	switch os.Args[1] {
 	case "up":
-		country, system := parseUpArgs(os.Args[2:])
-		if country == "" {
-			fmt.Fprintln(os.Stderr, "usage: poof up [--system] <country>")
+		args, err := parseUpArgs(os.Args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			fmt.Fprintln(os.Stderr, "usage: poof up [--system] [--static-ip <name>] [--only <host,...>] <country>")
 			os.Exit(2)
 		}
-		if system && os.Geteuid() != 0 {
+		if args.system && os.Geteuid() != 0 {
 			fmt.Fprintln(os.Stderr,
 				"error: --system reroutes the whole machine and needs root.\n"+
 					"       re-run with sudo, preserving your AWS env, e.g.:\n"+
 					"         sudo --preserve-env=AWS_PROFILE,HOME,AWS_REGION "+
-					os.Args[0]+" up --system "+country)
+					os.Args[0]+" up --system "+args.country)
 			os.Exit(1)
 		}
-		if err := cmdUp(country, profile, verbose, system); err != nil {
+		if err := cmdUp(args, profile, verbose); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
 	case "regions":
 		fmt.Println("available countries:")
 		fmt.Println("  " + strings.Join(exit.Countries(), ", "))
+	case "static-ip":
+		if err := cmdStaticIP(os.Args[2:], profile); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
 	default:
 		usage()
 		os.Exit(2)
 	}
 }
 
-// parseUpArgs extracts the country and the --system flag from `up`'s
-// arguments, in any order.
-func parseUpArgs(args []string) (country string, system bool) {
-	for _, a := range args {
+type upArgs struct {
+	country  string
+	system   bool
+	staticIP string
+	only     []string
+}
+
+// parseUpArgs parses `up`'s arguments, in any order.
+func parseUpArgs(args []string) (upArgs, error) {
+	var u upArgs
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch a {
 		case "--system":
-			system = true
-		default:
-			if country == "" && !strings.HasPrefix(a, "-") {
-				country = a
+			u.system = true
+		case "--static-ip", "--only":
+			if i+1 >= len(args) {
+				return u, fmt.Errorf("%s needs a value", a)
 			}
+			i++
+			if a == "--static-ip" {
+				if err := exit.ValidStaticIPName(args[i]); err != nil {
+					return u, err
+				}
+				u.staticIP = args[i]
+				continue
+			}
+			for _, h := range strings.Split(args[i], ",") {
+				if h = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(h)), "."); h != "" {
+					u.only = append(u.only, h)
+				}
+			}
+		default:
+			if strings.HasPrefix(a, "-") {
+				return u, fmt.Errorf("unknown flag %s", a)
+			}
+			if u.country != "" {
+				return u, fmt.Errorf("unexpected argument %s", a)
+			}
+			u.country = a
 		}
 	}
-	return country, system
+	if u.country == "" {
+		return u, fmt.Errorf("missing country")
+	}
+	if u.system && len(u.only) > 0 {
+		return u, fmt.Errorf("--only filters the SOCKS proxy; it cannot be combined with --system")
+	}
+	return u, nil
 }
 
 func usage() {
@@ -78,19 +120,29 @@ usage:
   poof up <country>            provision an exit, serve a SOCKS5 proxy
   poof up --system <country>   route the WHOLE machine (needs sudo)
   poof regions                 list available countries
+  poof static-ip               list Static IPs
+  poof static-ip release <country> <name>
+                               give a Static IP back to AWS
+
+up flags:
+  --static-ip <name>   egress from the named Static IP, kept across sessions
+  --only <host,...>    proxy only these hosts (and subdomains) through the
+                       exit; everything else goes direct
 
 env:
   AWS_PROFILE     AWS profile to use
   POOF_VERBOSE    set to enable WireGuard debug logging`)
 }
 
-func cmdUp(country, profile string, verbose, system bool) error {
+func cmdUp(args upArgs, profile string, verbose bool) error {
+	country := args.country
 	// Ctrl-C cancels ctx; teardown runs regardless via WithoutCancel.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	conn, teardown, err := session.Provision(ctx, session.Options{
-		Country: country, Profile: profile, Verbose: verbose, System: system,
+		Country: country, Profile: profile, Verbose: verbose, System: args.system,
+		StaticIP:      args.staticIP,
 		KeepOnFailure: os.Getenv("POOF_KEEP") != "",
 	})
 	if err != nil {
@@ -99,6 +151,9 @@ func cmdUp(country, profile string, verbose, system bool) error {
 	defer teardown()
 
 	fmt.Printf("\n✓ connected. exit is live in %s.\n", country)
+	if args.staticIP != "" {
+		fmt.Printf("✓ static IP %s: %s (kept after disconnect)\n", args.staticIP, conn.Exit.PublicIP)
+	}
 
 	label := country
 	if conn.IsSystem() {
@@ -118,12 +173,20 @@ func cmdUp(country, profile string, verbose, system bool) error {
 		if ip := egressIP(ctx, proxyClient); ip != "" {
 			fmt.Printf("✓ traffic through the tunnel exits from: %s\n", ip)
 		}
+		srv := socks.NewServer(conn.Proxy)
+		if len(args.only) > 0 {
+			srv = socks.NewSplitServer(conn.Proxy, &net.Dialer{}, args.only)
+		}
 		go func() {
-			if err := socks.NewServer(conn.Proxy).ListenAndServe(ctx, socksAddr); err != nil {
+			if err := srv.ListenAndServe(ctx, socksAddr); err != nil {
 				fmt.Fprintf(os.Stderr, "!! socks proxy stopped: %v\n", err)
 			}
 		}()
 		fmt.Printf("✓ SOCKS5 proxy listening on %s\n", socksAddr)
+		if len(args.only) > 0 {
+			fmt.Printf("✓ only %s go through the exit; everything else goes direct\n",
+				strings.Join(args.only, ", "))
+		}
 		fmt.Printf("\n  point an app at it, e.g.:\n"+
 			"    curl --proxy socks5h://%s https://api.ipify.org\n"+
 			"    (socks5h = resolve DNS through the tunnel, no leaks)\n", socksAddr)
@@ -204,4 +267,47 @@ func egressIP(ctx context.Context, client *http.Client) string {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	return strings.TrimSpace(string(b))
+}
+
+// cmdStaticIP lists Static IPs across every region, or releases one.
+func cmdStaticIP(args []string, profile string) error {
+	ctx := context.Background()
+	if len(args) == 0 {
+		for _, region := range exit.AllRegions() {
+			p, err := exit.NewProvisioner(ctx, region, profile)
+			if err != nil {
+				return err
+			}
+			found, err := p.ListStaticIPs(ctx, "")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "!! %v\n", err)
+				continue
+			}
+			for _, s := range found {
+				holder := "idle"
+				if s.InstanceID != "" {
+					holder = "held by " + s.InstanceID
+				}
+				fmt.Printf("%-16s %-14s %-16s %s\n", s.Region, s.Name, s.PublicIP, holder)
+			}
+		}
+		return nil
+	}
+	if args[0] != "release" || len(args) != 3 {
+		return fmt.Errorf("usage: poof static-ip [release <country> <name>]")
+	}
+	region, err := exit.RegionFor(args[1])
+	if err != nil {
+		return err
+	}
+	p, err := exit.NewProvisioner(ctx, region, profile)
+	if err != nil {
+		return err
+	}
+	s, err := p.ReleaseStaticIP(ctx, args[2])
+	if err != nil {
+		return err
+	}
+	fmt.Printf("released static IP %s (%s) in %s\n", s.Name, s.PublicIP, region)
+	return nil
 }

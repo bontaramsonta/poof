@@ -28,6 +28,10 @@ _Avoid_: listener, endpoint
 How a Session captures traffic. *Proxy mode* (default) serves a SOCKS Proxy and touches nothing else — per-app, no root. *System mode* (`--system`) reroutes the whole machine through the Exit via a real network interface, and must restore the machine's routing and DNS on teardown — whole-machine, needs root.
 _Avoid_: tunnel type
 
+**Static IP**:
+A named public address in one Country that Exits can borrow (`--static-ip groww`). The first Session that names it creates it; it outlives every Session and is held by at most one Exit at a time. It is the only thing poof keeps between Sessions, and only `poof static-ip release` removes it.
+_Avoid_: elastic IP, pinned IP, reserved IP
+
 ## Flagged ambiguities
 
 - **"Disconnect" has two faces.** A *clean* disconnect (Ctrl-C) tears the Exit down immediately; a *dirty* disconnect (crash, lost network) is only detected by the Dead-man's switch, so the Exit lives a few minutes longer. Both end the Session; only the speed differs.
@@ -41,3 +45,5 @@ _Avoid_: tunnel type
 **Expert:** The switch runs on the Exit itself, with shutdown-means-terminate, so it needs nothing from the client. There is no second backstop; if you ever doubt it, look for `poof=1` instances in the console.
 **Dev:** When I pick a Country, do I get the same Exit as last time?
 **Expert:** There is no "last time." Every Session creates a brand-new Exit with brand-new keys. Nothing is reused, nothing is remembered.
+**Dev:** But Groww needs the same IP every time.
+**Expert:** Name a Static IP. You still get a brand-new Exit; it just borrows the address that name kept.
