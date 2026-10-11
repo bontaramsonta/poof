@@ -8,6 +8,8 @@ sudo poof up --system japan  # system mode: route the WHOLE machine (needs root)
 poof regions              # list available countries
 ```
 
+**Install** (Go 1.25.3 or newer): `go install github.com/bontaramsonta/poof/cmd/poof@latest`. It lands in `$(go env GOPATH)/bin`, which MUST be on your `PATH`. poof uses your AWS credentials (`AWS_PROFILE`, or `aws sso login`).
+
 **Owner**: `up` and Static IP changes need one. Put `owner = <name>` in `~/.config/poof/config`, or pass `--owner <name>`. It tags your Exits and Static IPs, so people sharing an AWS account don't collide. Design: [ADR-0007](./docs/adr/0007-owner-tag-by-convention.md).
 
 **Proxy mode** (default): point a browser or `curl --proxy socks5h://localhost:1080` at the proxy. No root, nothing on your system is reconfigured.
