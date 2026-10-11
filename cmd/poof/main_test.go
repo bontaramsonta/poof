@@ -22,3 +22,26 @@ func TestHumanBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestParseUpArgs(t *testing.T) {
+	got, err := parseUpArgs([]string{"--only", "API.groww.in., x.com", "india", "--static-ip", "groww"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.country != "india" || got.staticIP != "groww" || len(got.only) != 2 ||
+		got.only[0] != "api.groww.in" || got.only[1] != "x.com" {
+		t.Fatalf("got %+v", got)
+	}
+	for _, bad := range [][]string{
+		{},
+		{"india", "--static-ip"},
+		{"india", "--static-ip", "Bad Name"},
+		{"--system", "--only", "x.com", "india"},
+		{"india", "japan"},
+		{"--bogus", "india"},
+	} {
+		if _, err := parseUpArgs(bad); err == nil {
+			t.Errorf("%q: want error", bad)
+		}
+	}
+}

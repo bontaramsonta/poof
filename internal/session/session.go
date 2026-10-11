@@ -33,6 +33,9 @@ type Options struct {
 	// System routes the whole machine through the Exit (utun + OS routing
 	// changes, needs root) instead of serving a SOCKS proxy.
 	System bool
+	// StaticIP, when set, names the Static IP the Exit egresses from.
+	// It is allocated on first use and outlives the Session.
+	StaticIP string
 }
 
 // Connected is the live state handed to a caller once the Exit answers.
@@ -91,7 +94,12 @@ func Provision(ctx context.Context, opts Options) (*Connected, func(), error) {
 	}
 
 	fmt.Printf("→ launching exit in %s (%s)...\n", opts.Country, region)
-	ex, err := p.Launch(ctx, userData, nil)
+	var ex *exit.Exit
+	if opts.StaticIP != "" {
+		ex, err = p.LaunchWithStaticIP(ctx, userData, opts.StaticIP, nil)
+	} else {
+		ex, err = p.Launch(ctx, userData, nil)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
