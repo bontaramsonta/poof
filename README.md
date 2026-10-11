@@ -16,7 +16,7 @@ poof regions              # list available countries
 sudo --preserve-env=AWS_PROFILE,HOME,AWS_REGION poof up --system japan
 ```
 
-**Static IP** (`--static-ip <name>`): for APIs that allowlist your source IP. The first run allocates an Elastic IP under that name; every later run with the same name and country reuses it. It outlives the session and is billed while idle (~$3.60/month) until `poof static-ip release <country> <name>`. `poof static-ip` lists them. See [ADR-0006](./docs/adr/0006-named-static-ip.md).
+**Static IP** (`--static-ip <name>`): for APIs that allowlist your source IP. The first run allocates an Elastic IP under that name; every later run with the same name and country reuses it. It outlives the session and is billed while idle (~$3.60/month) until `poof static-ip release <country> <name>`. `poof static-ip` lists them. Guide: [docs/static-ip.md](./docs/static-ip.md); design: [ADR-0006](./docs/adr/0006-named-static-ip.md).
 
 ```
 poof up india --static-ip groww --only api.groww.in
