@@ -8,6 +8,8 @@ sudo poof up --system japan  # system mode: route the WHOLE machine (needs root)
 poof regions              # list available countries
 ```
 
+**Owner**: `up` and Static IP changes need one. Put `owner = <name>` in `~/.config/poof/config`, or pass `--owner <name>`. It tags your Exits and Static IPs, so people sharing an AWS account don't collide. Design: [ADR-0007](./docs/adr/0007-owner-tag-by-convention.md).
+
 **Proxy mode** (default): point a browser or `curl --proxy socks5h://localhost:1080` at the proxy. No root, nothing on your system is reconfigured.
 
 **System mode** (`--system`): every app on the machine egresses from the Exit. Needs root — it creates a `utun` device and rewrites routing + DNS, restoring both on exit (see [ADR-0004](./docs/adr/0004-system-wide-utun-routing.md)). Run it preserving your AWS env:
@@ -16,7 +18,7 @@ poof regions              # list available countries
 sudo --preserve-env=AWS_PROFILE,HOME,AWS_REGION poof up --system japan
 ```
 
-**Static IP** (`--static-ip <name>`): for APIs that allowlist your source IP. The first run allocates an Elastic IP under that name; every later run with the same name and country reuses it. It outlives the session and is billed while idle (~$3.60/month) until `poof static-ip release <country> <name>`. `poof static-ip` lists them. Guide: [docs/static-ip.md](./docs/static-ip.md); design: [ADR-0006](./docs/adr/0006-named-static-ip.md).
+**Static IP** (`--static-ip <name>`): for APIs that allowlist your source IP. The first run allocates an Elastic IP under that name; every later run with the same name, country and Owner reuses it. It outlives the session and is billed while idle (~$3.60/month) until `poof static-ip release <country> <name>`. `poof static-ip` lists yours (`--all`: everyone's); `poof static-ip claim <country> <name>` adopts one made before Owners. Guide: [docs/static-ip.md](./docs/static-ip.md); design: [ADR-0006](./docs/adr/0006-named-static-ip.md).
 
 ```
 poof up india --static-ip groww --only api.groww.in

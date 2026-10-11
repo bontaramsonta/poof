@@ -36,6 +36,8 @@ type Options struct {
 	// StaticIP, when set, names the Static IP the Exit egresses from.
 	// It is allocated on first use and outlives the Session.
 	StaticIP string
+	// Owner tags the Exit, and scopes the Static IP name.
+	Owner string
 }
 
 // Connected is the live state handed to a caller once the Exit answers.
@@ -63,6 +65,9 @@ func (c *Connected) IsSystem() bool { return c.System != nil }
 func Provision(ctx context.Context, opts Options) (*Connected, func(), error) {
 	region, err := exit.RegionFor(opts.Country)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := exit.ValidOwner(opts.Owner); err != nil {
 		return nil, nil, err
 	}
 
@@ -96,9 +101,9 @@ func Provision(ctx context.Context, opts Options) (*Connected, func(), error) {
 	fmt.Printf("→ launching exit in %s (%s)...\n", opts.Country, region)
 	var ex *exit.Exit
 	if opts.StaticIP != "" {
-		ex, err = p.LaunchWithStaticIP(ctx, userData, opts.StaticIP, nil)
+		ex, err = p.LaunchWithStaticIP(ctx, userData, opts.Owner, opts.StaticIP, nil)
 	} else {
-		ex, err = p.Launch(ctx, userData, nil)
+		ex, err = p.Launch(ctx, userData, map[string]string{exit.OwnerTagKey: opts.Owner})
 	}
 	if err != nil {
 		return nil, nil, err

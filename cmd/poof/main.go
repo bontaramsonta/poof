@@ -27,14 +27,23 @@ func main() {
 	}
 	profile := os.Getenv("AWS_PROFILE")
 	verbose := os.Getenv("POOF_VERBOSE") != ""
+	cfgPath, err := configPath()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 
 	switch os.Args[1] {
 	case "up":
 		args, err := parseUpArgs(os.Args[2:])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
-			fmt.Fprintln(os.Stderr, "usage: poof up [--system] [--static-ip <name>] [--only <host,...>] <country>")
+			fmt.Fprintln(os.Stderr, "usage: poof up [--system] [--static-ip <name>] [--only <host,...>] [--owner <name>] <country>")
 			os.Exit(2)
+		}
+		if args.owner, err = resolveOwner(args.owner, cfgPath); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
 		}
 		if args.system && os.Geteuid() != 0 {
 			fmt.Fprintln(os.Stderr,
@@ -52,7 +61,13 @@ func main() {
 		fmt.Println("available countries:")
 		fmt.Println("  " + strings.Join(exit.Countries(), ", "))
 	case "static-ip":
-		if err := cmdStaticIP(os.Args[2:], profile); err != nil {
+		args, err := parseStaticIPArgs(os.Args[2:])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			fmt.Fprintln(os.Stderr, "usage: poof static-ip [--all] | poof static-ip release|claim <country> <name> [--owner <name>]")
+			os.Exit(2)
+		}
+		if err := cmdStaticIP(args, cfgPath, profile); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			os.Exit(1)
 		}
@@ -67,6 +82,7 @@ type upArgs struct {
 	system   bool
 	staticIP string
 	only     []string
+	owner    string
 }
 
 // parseUpArgs parses `up`'s arguments, in any order.
@@ -77,11 +93,15 @@ func parseUpArgs(args []string) (upArgs, error) {
 		switch a {
 		case "--system":
 			u.system = true
-		case "--static-ip", "--only":
+		case "--static-ip", "--only", "--owner":
 			if i+1 >= len(args) {
 				return u, fmt.Errorf("%s needs a value", a)
 			}
 			i++
+			if a == "--owner" {
+				u.owner = args[i]
+				continue
+			}
 			if a == "--static-ip" {
 				if err := exit.ValidStaticIPName(args[i]); err != nil {
 					return u, err
@@ -113,6 +133,52 @@ func parseUpArgs(args []string) (upArgs, error) {
 	return u, nil
 }
 
+type staticIPArgs struct {
+	action  string // "" lists; "release" or "claim"
+	all     bool
+	country string
+	name    string
+	owner   string
+}
+
+// parseStaticIPArgs parses `static-ip`'s arguments; flags go anywhere.
+func parseStaticIPArgs(args []string) (staticIPArgs, error) {
+	var s staticIPArgs
+	var pos []string
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; a {
+		case "--all":
+			s.all = true
+		case "--owner":
+			if i+1 >= len(args) {
+				return s, fmt.Errorf("--owner needs a value")
+			}
+			i++
+			s.owner = args[i]
+		default:
+			if strings.HasPrefix(a, "-") {
+				return s, fmt.Errorf("unknown flag %s", a)
+			}
+			pos = append(pos, a)
+		}
+	}
+	if len(pos) == 0 {
+		return s, nil
+	}
+	s.action = pos[0]
+	if s.action != "release" && s.action != "claim" {
+		return s, fmt.Errorf("unknown static-ip command %s", s.action)
+	}
+	if len(pos) != 3 {
+		return s, fmt.Errorf("%s needs <country> <name>", s.action)
+	}
+	if s.all {
+		return s, fmt.Errorf("--all only applies to the listing")
+	}
+	s.country, s.name = pos[1], pos[2]
+	return s, exit.ValidStaticIPName(s.name)
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, `poof — an ephemeral personal VPN
 
@@ -120,14 +186,20 @@ usage:
   poof up <country>            provision an exit, serve a SOCKS5 proxy
   poof up --system <country>   route the WHOLE machine (needs sudo)
   poof regions                 list available countries
-  poof static-ip               list Static IPs
+  poof static-ip               list your Static IPs (--all: every Owner's)
   poof static-ip release <country> <name>
                                give a Static IP back to AWS
+  poof static-ip claim <country> <name>
+                               make an unowned Static IP yours
 
 up flags:
   --static-ip <name>   egress from the named Static IP, kept across sessions
   --only <host,...>    proxy only these hosts (and subdomains) through the
                        exit; everything else goes direct
+
+owner:
+  up, release and claim need an Owner: owner = <name> in
+  ~/.config/poof/config, or --owner <name> on the command.
 
 env:
   AWS_PROFILE     AWS profile to use
@@ -143,6 +215,7 @@ func cmdUp(args upArgs, profile string, verbose bool) error {
 	conn, teardown, err := session.Provision(ctx, session.Options{
 		Country: country, Profile: profile, Verbose: verbose, System: args.system,
 		StaticIP:      args.staticIP,
+		Owner:         args.owner,
 		KeepOnFailure: os.Getenv("POOF_KEEP") != "",
 	})
 	if err != nil {
@@ -269,10 +342,14 @@ func egressIP(ctx context.Context, client *http.Client) string {
 	return strings.TrimSpace(string(b))
 }
 
-// cmdStaticIP lists Static IPs across every region, or releases one.
-func cmdStaticIP(args []string, profile string) error {
+// cmdStaticIP lists Static IPs across every region, or releases or
+// claims one.
+func cmdStaticIP(args staticIPArgs, cfgPath, profile string) error {
 	ctx := context.Background()
-	if len(args) == 0 {
+	if args.action == "" {
+		// Listing works without an Owner; it then shows everyone's.
+		owner, err := resolveOwner(args.owner, cfgPath)
+		all := args.all || err != nil
 		for _, region := range exit.AllRegions() {
 			p, err := exit.NewProvisioner(ctx, region, profile)
 			if err != nil {
@@ -284,19 +361,27 @@ func cmdStaticIP(args []string, profile string) error {
 				continue
 			}
 			for _, s := range found {
+				if !all && s.Owner != owner && s.Owner != "" {
+					continue
+				}
 				holder := "idle"
 				if s.InstanceID != "" {
 					holder = "held by " + s.InstanceID
 				}
-				fmt.Printf("%-16s %-14s %-16s %s\n", s.Region, s.Name, s.PublicIP, holder)
+				o := s.Owner
+				if o == "" {
+					o = "(unowned)"
+				}
+				fmt.Printf("%-16s %-14s %-12s %-16s %s\n", s.Region, s.Name, o, s.PublicIP, holder)
 			}
 		}
 		return nil
 	}
-	if args[0] != "release" || len(args) != 3 {
-		return fmt.Errorf("usage: poof static-ip [release <country> <name>]")
+	owner, err := resolveOwner(args.owner, cfgPath)
+	if err != nil {
+		return err
 	}
-	region, err := exit.RegionFor(args[1])
+	region, err := exit.RegionFor(args.country)
 	if err != nil {
 		return err
 	}
@@ -304,7 +389,15 @@ func cmdStaticIP(args []string, profile string) error {
 	if err != nil {
 		return err
 	}
-	s, err := p.ReleaseStaticIP(ctx, args[2])
+	if args.action == "claim" {
+		s, err := p.ClaimStaticIP(ctx, owner, args.name)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("claimed static IP %s (%s) in %s for %s; the address is unchanged\n", s.Name, s.PublicIP, region, owner)
+		return nil
+	}
+	s, err := p.ReleaseStaticIP(ctx, owner, args.name)
 	if err != nil {
 		return err
 	}

@@ -24,11 +24,11 @@ func TestHumanBytes(t *testing.T) {
 }
 
 func TestParseUpArgs(t *testing.T) {
-	got, err := parseUpArgs([]string{"--only", "API.groww.in., x.com", "india", "--static-ip", "groww"})
+	got, err := parseUpArgs([]string{"--only", "API.groww.in., x.com", "india", "--static-ip", "groww", "--owner", "vaisnav"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.country != "india" || got.staticIP != "groww" || len(got.only) != 2 ||
+	if got.country != "india" || got.staticIP != "groww" || got.owner != "vaisnav" || len(got.only) != 2 ||
 		got.only[0] != "api.groww.in" || got.only[1] != "x.com" {
 		t.Fatalf("got %+v", got)
 	}
@@ -39,8 +39,40 @@ func TestParseUpArgs(t *testing.T) {
 		{"--system", "--only", "x.com", "india"},
 		{"india", "japan"},
 		{"--bogus", "india"},
+		{"india", "--owner"},
 	} {
 		if _, err := parseUpArgs(bad); err == nil {
+			t.Errorf("%q: want error", bad)
+		}
+	}
+}
+
+func TestParseStaticIPArgs(t *testing.T) {
+	cases := []struct {
+		args []string
+		want staticIPArgs
+	}{
+		{nil, staticIPArgs{}},
+		{[]string{"--all"}, staticIPArgs{all: true}},
+		{[]string{"claim", "india", "groww"}, staticIPArgs{action: "claim", country: "india", name: "groww"}},
+		{[]string{"--owner", "vaisnav", "release", "india", "groww"},
+			staticIPArgs{action: "release", country: "india", name: "groww", owner: "vaisnav"}},
+	}
+	for _, c := range cases {
+		got, err := parseStaticIPArgs(c.args)
+		if err != nil || got != c.want {
+			t.Errorf("%q: got %+v, %v; want %+v", c.args, got, err, c.want)
+		}
+	}
+	for _, bad := range [][]string{
+		{"nuke"},
+		{"release", "india"},
+		{"claim", "india", "Bad Name"},
+		{"--all", "release", "india", "groww"},
+		{"--owner"},
+		{"--bogus"},
+	} {
+		if _, err := parseStaticIPArgs(bad); err == nil {
 			t.Errorf("%q: want error", bad)
 		}
 	}
