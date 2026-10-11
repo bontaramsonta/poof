@@ -24,10 +24,21 @@ Register that address with the API provider. Every later `poof up india --static
 |---|---|
 | `poof up <country> --static-ip <name>` | Launch an Exit that egresses from `<name>`, allocating it on first use |
 | `poof up ... --only <host,...>` | Send only these hosts (and subdomains) through the Exit; everything else on the proxy goes direct |
-| `poof static-ip` | List Static IPs in every region, and which Exit holds each |
+| `poof static-ip` | List your Static IPs in every region, and which Exit holds each. `--all` lists every Owner's |
 | `poof static-ip release <country> <name>` | Give the address back to AWS. It is gone for good |
+| `poof static-ip claim <country> <name>` | Make an unowned Static IP yours. The address does not change |
 
-Names are lowercase letters, digits and dashes. A name is scoped to its country: `groww` in India and `groww` in Singapore are two addresses.
+Names are lowercase letters, digits and dashes. A name is scoped to its Owner and Country: `groww` in India and `groww` in Singapore are two addresses, and so are your `groww` and someone else's.
+
+## Owner
+
+Set your Owner once in `~/.config/poof/config`:
+
+```
+owner = sourav
+```
+
+`--owner <name>` overrides it for one command. Without an Owner, `poof up` and `poof static-ip release` refuse. A Static IP made before Owners existed is unowned: it can't be borrowed or released until someone claims it. Design: [ADR-0007](./adr/0007-owner-tag-by-convention.md).
 
 ## How it behaves
 
@@ -50,9 +61,10 @@ ec2:AssociateAddress
 ec2:DisassociateAddress
 ec2:DescribeAddresses
 ec2:ReleaseAddress
+ec2:CreateTags   (claim only)
 ```
 
-Addresses are tagged `poof=1`, `poof:static-ip=<name>` and `Name=poof-static-<name>`, all set inside `AllocateAddress`.
+Addresses are tagged `poof=1`, `poof:static-ip=<name>`, `poof:owner=<owner>` and `Name=poof-static-<owner>-<name>`, all set inside `AllocateAddress`. `claim` is the only retag.
 
 ## Pointing clients at it
 
@@ -91,6 +103,8 @@ requests.get(url, proxies={"https": "socks5h://127.0.0.1:1080"})
 | Symptom | Cause |
 |---|---|
 | `static IP <name> (...) is held by i-...` | Another Session is live. Disconnect it first |
+| `no owner set` | Add `owner = <name>` to `~/.config/poof/config`, or pass `--owner` |
+| `static IP <name> is unowned` | It predates Owners. `poof static-ip claim <country> <name>` |
 | Requests hang, then time out | poof is suspended (Ctrl-Z), not stopped. Resume it with `fg`, or Ctrl-C and start again |
 | Requests fail with connection refused | poof isn't running |
 | The API rejects you though poof is up | The client isn't sending that host through the proxy, uses `socks5` instead of `socks5h`, or `--only` doesn't list the host |

@@ -29,8 +29,12 @@ How a Session captures traffic. *Proxy mode* (default) serves a SOCKS Proxy and 
 _Avoid_: tunnel type
 
 **Static IP**:
-A named public address in one Country that Exits can borrow (`--static-ip groww`). The first Session that names it creates it; it outlives every Session and is held by at most one Exit at a time. It is the only thing poof keeps between Sessions, and only `poof static-ip release` removes it.
+A named public address in one Country that Exits can borrow (`--static-ip groww`). The first Session that names it creates it; it outlives every Session and is held by at most one Exit at a time. It is the only thing poof keeps between Sessions, and only `poof static-ip release` removes it. Its name is scoped to its Owner and Country.
 _Avoid_: elastic IP, pinned IP, reserved IP
+
+**Owner**:
+The person a Session, Exit or Static IP belongs to (`owner = sourav` in the config). Set explicitly, never derived from the AWS identity; poof refuses to launch or release without one. A convention that keeps people sharing an account from colliding, not access control.
+_Avoid_: user, account, tenant
 
 ## Flagged ambiguities
 
